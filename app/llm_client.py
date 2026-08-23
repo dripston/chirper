@@ -79,9 +79,11 @@ def _pick_mock(system_prompt: str, user_prompt: str) -> str:
     return bank[idx]
 
 
+import re
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
-_DEFAULT_MODEL = "openai/gpt-oss-20b"
+_DEFAULT_MODEL = "qwen/qwen3.6-27b"
 
 
 def generate(
@@ -122,4 +124,8 @@ def generate(
         max_tokens=max_tokens,
         temperature=0.9,
     )
-    return response.choices[0].message.content.strip()
+    raw_content = response.choices[0].message.content or ""
+    
+    # Strip <think>...</think> blocks if present (from reasoning models like Qwen)
+    cleaned_content = re.sub(r"<think>.*?</think>", "", raw_content, flags=re.DOTALL)
+    return cleaned_content.strip()
