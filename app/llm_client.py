@@ -105,7 +105,8 @@ def generate(
         return _pick_mock(system_prompt, user_prompt)
 
     # ── Real Groq call ───────────────────────────────────────────────────
-    from groq import Groq  # lazy import to avoid load-time errors when mocking
+    import time
+    from groq import Groq, RateLimitError, InternalServerError  # lazy import to avoid load-time errors when mocking
 
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -115,17 +116,35 @@ def generate(
         )
 
     client = Groq(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model or _DEFAULT_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        max_tokens=max_tokens,
-        temperature=0.9,
-    )
-    raw_content = response.choices[0].message.content or ""
     
-    # Strip <think>...</think> blocks if present (just in case)
-    cleaned_content = re.sub(r"<think>.*?(?:</think>|$)", "", raw_content, flags=re.DOTALL)
-    return cleaned_content.strip()
+    max_retries = 3
+    base_wait = 5.0  # start by waiting 5 seconds on first failure
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=model or _DEFAULT_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=max_tokens,
+                temperature=0.9,
+            )
+            raw_content = response.choices[0].message.content or ""
+            
+            # Strip <think>...</think> blocks if present (just in case)
+            cleaned_content = re.sub(r"<think>.*?(?:</think>|$)", "", raw_content, flags=re.DOTALL)
+            return cleaned_content.strip()
+            
+        except RateLimitError as e:
+            if attempt == max_retries - 1:
+                raise
+            # If the error message has 'try again in X.Xs', we could parse it, but a generic backoff works well
+            time.sleep(base_wait * (2 ** attempt))
+        except InternalServerError as e:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(base_wait * (2 ** attempt))
+            
+    return ""
