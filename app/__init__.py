@@ -1,1 +1,1 @@
-# Echo Chamber — app package
+# Chirper — app package

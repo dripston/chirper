@@ -1,17 +1,13 @@
-# 📡 Echo Chamber
+# 📡 Chirper
 
-Echo Chamber is a satirical social-strategy simulator about how misinformation actually spreads. The player writes a single post on a fictional platform populated by AI agents, each with a fixed ideology, memory, and behavioral bias. The post propagates through the agent network — agents comment, argue, repost, distort, and occasionally DM the player directly to recruit or radicalize them. Built on LangGraph-orchestrated agents with persistent vector memory (Pinecone) and Groq-powered inference, the game lets players trace their post's full lineage and see how far a single claim can drift from the truth — the "spread map" itself being the game's central, shareable spectacle.
+Chirper is a satirical social-strategy simulator about how misinformation actually spreads. The player writes a single post on a fictional platform populated by AI agents, each with a fixed ideology, memory, and behavioral bias. The post propagates through the agent network — agents comment, argue, repost, distort, and occasionally DM the player directly to recruit or radicalize them. Built on LangGraph-orchestrated agents with persistent vector memory (Pinecone) and Groq-powered inference, the game lets players trace their post's full lineage and see how far a single claim can drift from the truth — the "spread map" itself being the game's central, shareable spectacle.
 
 ---
 
 ## Phases
 
 - [x] **Phase 0** — Project scaffold & repo setup
-- [ ] **Phase 1** — Persona definitions & agent profiles
-- [ ] **Phase 2** — LLM client (Groq) & vector memory (Pinecone)
-- [ ] **Phase 3** — LangGraph spread simulation
-- [ ] **Phase 4** — Post creation & feed endpoints
-- [ ] **Phase 5** — DM / radicalization mechanic
+- [x] **Phase 1** — Personas, LLM client, vector memory, LangGraph simulation, API endpoints
 - [ ] **Phase 6** — Spread-map visualization & frontend
 - [ ] **Phase 7** — Polish, scoring, & shareability
 
@@ -48,7 +44,18 @@ pip install -r requirements.txt
 cp .env.example .env
 
 # 5. Run the development server
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
+
+# 6. Run the mock-mode test (no API keys needed)
+python test_simulation.py
 ```
 
 The health-check endpoint will be available at **http://127.0.0.1:8000/health**.
+
+### API Endpoints
+
+| Method | Path       | Description                                |
+|--------|------------|--------------------------------------------|
+| GET    | `/health`  | Liveness probe                             |
+| GET    | `/personas`| List all AI personas                       |
+| POST   | `/post`    | Run a simulation (body: `{text, persona_ids?, max_hops?}`) |
