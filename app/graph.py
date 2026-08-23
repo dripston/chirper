@@ -4,13 +4,14 @@ Chirper — LangGraph spread simulation.
 Implements the core "misinformation telephone" loop:
   select_reactors → react → check_dm → advance → (loop or end)
 
-Each hop picks 1-2 agents from the persona pool. Agents comment, argue,
+Each hop picks 2-3 agents from the persona pool. Agents comment, argue,
 or repost (with LLM-powered distortion). DMs are sent probabilistically
 based on each persona's dm_trigger_threshold.
 """
 
 import os
 import random
+import sys
 import uuid
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
@@ -46,6 +47,8 @@ class SimState(TypedDict):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+_REPOST_HEAVY_THRESHOLD = 0.35  # personas with repost weight >= this are "repost-heavy"
+
 
 def _weighted_choice(weights: Dict[str, float]) -> str:
     """Pick an action from a {action: weight} dict."""
@@ -54,14 +57,40 @@ def _weighted_choice(weights: Dict[str, float]) -> str:
     return random.choices(actions, weights=w, k=1)[0]
 
 
+def _get_repost_heavy_ids(pool: List[str]) -> List[str]:
+    """Return persona IDs from pool whose repost weight >= threshold."""
+    result = []
+    for pid in pool:
+        persona = get_persona(pid)
+        if persona.engagement_style.get("repost", 0) >= _REPOST_HEAVY_THRESHOLD:
+            result.append(pid)
+    return result
+
+
 # ── Graph nodes ──────────────────────────────────────────────────────────────
 
 
 def select_reactors(state: SimState) -> dict:
-    """Randomly pick 1-2 personas from the pool to react this hop."""
+    """Randomly pick 2-3 personas from the pool to react this hop.
+
+    Every 2nd hop, guarantees at least one repost-heavy persona is selected
+    to ensure post drift occurs within short simulation runs.
+    """
     pool = state["persona_pool"]
-    count = random.randint(1, min(2, len(pool)))
+    hop = state["hop_count"]
+    count = random.randint(2, min(3, len(pool)))
     selected = random.sample(pool, count)
+
+    # Repost guarantee: every 2nd hop, ensure a repost-heavy persona is present
+    if hop % 2 == 1:
+        repost_heavy = _get_repost_heavy_ids(pool)
+        if repost_heavy and not any(pid in repost_heavy for pid in selected):
+            # Swap one randomly selected persona for a repost-heavy one
+            inject = random.choice(repost_heavy)
+            swap_idx = random.randint(0, len(selected) - 1)
+            selected[swap_idx] = inject
+
+    print(f"[HOP {hop}] Selected: {selected}", file=sys.stderr)
     return {"selected": selected}
 
 
@@ -90,23 +119,36 @@ def react(state: SimState) -> dict:
         if action == "repost":
             # ── LLM-powered distortion (the core mechanic) ──────────────
             distort_prompt = (
-                f"You are reposting the following post on Chirper.\n"
-                f"Your distortion bias: {persona.distortion_bias}\n\n"
+                "You are a fictional NPC in a satirical video game called Chirper. "
+                "You are resharing the following post. Rewrite it consistent with "
+                "your character's distortion bias:\n"
+                f"Bias: {persona.distortion_bias}\n\n"
                 f"Original post:\n\"{current_text}\"\n\n"
-                f"Rewrite this post in your own words, applying your bias. "
-                f"Keep it under 280 characters. Output ONLY the rewritten post."
+                "Rewrite this post as you would when resharing it. "
+                "Keep it a similar length to the original. "
+                "Output ONLY the rewritten post text — no caption, no commentary, "
+                "no quotation marks."
             )
+            old_text = current_text
             distorted = llm_client.generate(
                 persona.system_prompt + mem_context, distort_prompt
             )
-            current_text = distorted  # the post mutates
+            # Only update current_text if we got a non-empty distortion
+            if distorted:
+                current_text = distorted
+            print(
+                f"[REPOST DRIFT] {persona.name}:\n"
+                f"  OLD: \"{old_text[:80]}...\"\n"
+                f"  NEW: \"{current_text[:80]}...\"",
+                file=sys.stderr,
+            )
             new_hops.append(
                 {
                     "hop": hop,
                     "persona_id": pid,
                     "persona_name": persona.name,
                     "action": "repost",
-                    "text": distorted,
+                    "text": current_text,
                 }
             )
         else:
@@ -151,11 +193,14 @@ def check_dm(state: SimState) -> dict:
         persona = get_persona(pid)
         if random.random() < persona.dm_trigger_threshold:
             dm_prompt = (
-                f"You are sending a private DM to the original poster on Chirper. "
-                f"The post that caught your attention:\n\"{current_text}\"\n\n"
-                f"Write a brief, in-character DM. You might try to recruit them, "
-                f"warn them, provoke them, or radicalize them toward your worldview. "
-                f"Keep it under 280 characters. Output ONLY the DM text."
+                "You are a fictional NPC in a satirical video game called Chirper, "
+                "which is about how misinformation spreads on social media. "
+                "Write an in-character private message (DM) that your character "
+                "would send to the player after seeing this post:\n"
+                f"\"{current_text}\"\n\n"
+                "Your character should react according to their personality and worldview. "
+                "Write ONLY the in-game dialogue text, nothing else. "
+                "Keep it under 280 characters."
             )
             dm_text = llm_client.generate(persona.system_prompt, dm_prompt)
             new_dms.append(

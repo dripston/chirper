@@ -137,14 +137,17 @@ def generate(
             cleaned_content = re.sub(r"<think>.*?(?:</think>|$)", "", raw_content, flags=re.DOTALL)
             return cleaned_content.strip()
             
-        except RateLimitError as e:
+        except (RateLimitError, InternalServerError) as e:
             if attempt == max_retries - 1:
-                raise
-            # If the error message has 'try again in X.Xs', we could parse it, but a generic backoff works well
-            time.sleep(base_wait * (2 ** attempt))
-        except InternalServerError as e:
-            if attempt == max_retries - 1:
-                raise
+                # Fall back to mock response instead of crashing
+                import sys
+                print(
+                    f"[WARN] Groq API failed after {max_retries} retries: {e}. "
+                    f"Using fallback mock response.",
+                    file=sys.stderr,
+                )
+                return _pick_mock(system_prompt, user_prompt)
             time.sleep(base_wait * (2 ** attempt))
             
-    return ""
+    return _pick_mock(system_prompt, user_prompt)
+
