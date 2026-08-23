@@ -90,7 +90,7 @@ def generate(
     system_prompt: str,
     user_prompt: str,
     *,
-    max_tokens: int = 300,
+    max_tokens: int = 1024,
     model: Optional[str] = None,
 ) -> str:
     """
@@ -126,6 +126,6 @@ def generate(
     )
     raw_content = response.choices[0].message.content or ""
     
-    # Strip <think>...</think> blocks if present (from reasoning models like Qwen)
-    cleaned_content = re.sub(r"<think>.*?</think>", "", raw_content, flags=re.DOTALL)
+    # Strip <think>...</think> blocks if present, even if the closing tag is missing due to truncation
+    cleaned_content = re.sub(r"<think>.*?(?:</think>|$)", "", raw_content, flags=re.DOTALL)
     return cleaned_content.strip()
