@@ -83,14 +83,14 @@ import re
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
-_DEFAULT_MODEL = "qwen/qwen3.6-27b"
+_DEFAULT_MODEL = "groq/compound-mini"
 
 
 def generate(
     system_prompt: str,
     user_prompt: str,
     *,
-    max_tokens: int = 1024,
+    max_tokens: int = 300,
     model: Optional[str] = None,
 ) -> str:
     """
@@ -126,6 +126,6 @@ def generate(
     )
     raw_content = response.choices[0].message.content or ""
     
-    # Strip <think>...</think> blocks if present, even if the closing tag is missing due to truncation
+    # Strip <think>...</think> blocks if present (just in case)
     cleaned_content = re.sub(r"<think>.*?(?:</think>|$)", "", raw_content, flags=re.DOTALL)
     return cleaned_content.strip()
