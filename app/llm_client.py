@@ -81,7 +81,7 @@ def _pick_mock(system_prompt: str, user_prompt: str) -> str:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
-_DEFAULT_MODEL = "llama-3.1-8b-instant"
+_DEFAULT_MODEL = "openai/gpt-oss-20b"
 
 
 def generate(
