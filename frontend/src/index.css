@@ -1,0 +1,167 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg-color: #000000;
+  --surface: #0a0a0a;
+  --surface-hover: #141414;
+  --surface-active: #1f1f1f;
+  
+  --text-primary: #ededed;
+  --text-secondary: #888888;
+  --text-muted: #555555;
+  
+  --border-color: rgba(255, 255, 255, 0.1);
+  --border-hover: rgba(255, 255, 255, 0.2);
+  
+  --accent-primary: #ededed;
+  --accent-error: #ff453a;
+  --accent-blue: #0a84ff;
+  --accent-purple: #bf5af2;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  font-family: 'Geist', sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Material Symbols alignment */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
+  vertical-align: middle;
+}
+
+/* Typography */
+.font-mono {
+  font-family: 'Geist Mono', monospace;
+}
+.font-body {
+  font-family: 'Inter', sans-serif;
+}
+.font-display {
+  font-family: 'Geist', sans-serif;
+}
+
+/* Minimalist Panels */
+.glass-panel {
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.glass-panel-hover:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
+
+/* Scrollbar Hide */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Progress Ring */
+.progress-ring__circle {
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+/* Layout Utilities */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+  gap: 32px;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 80px 32px 32px;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.btn-primary {
+  background: var(--text-primary);
+  color: var(--bg-color);
+  font-weight: 600;
+  border-radius: 6px;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #ffffff;
+  transform: none;
+  box-shadow: none;
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--surface-hover);
+  color: var(--text-muted);
+}
+
+.input-minimal {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  outline: none;
+  font-size: 14px;
+}
+.input-minimal::placeholder {
+  color: var(--text-muted);
+}
+
+/* Skeleton */
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface) 0px, var(--surface-hover) 50%, var(--surface) 100%);
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite linear;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}

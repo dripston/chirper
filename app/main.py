@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.graph import ChirperSimulation, SpreadResult, generate_single_reaction
@@ -20,6 +21,15 @@ app = FastAPI(
     title="Chirper",
     description="Satirical social-strategy simulator about misinformation spread.",
     version="0.2.6",
+)
+
+# Configure CORS for Vite frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 _sim = ChirperSimulation()
