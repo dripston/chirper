@@ -16,6 +16,8 @@ import os
 import random
 import sys
 import uuid
+import time
+import concurrent.futures
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from langgraph.graph import END, StateGraph
@@ -121,8 +123,70 @@ def select_reactors(state: SimState) -> dict:
     return {"selected": selected}
 
 
+def _process_reaction(pid, current_text, post_id, hop, cross_context):
+    persona = get_persona(pid)
+    mem_context = _build_memory_context(pid, current_text)
+    action = _weighted_choice(persona.engagement_style)
+    
+    distorted_text = None
+    if action == "repost":
+        distort_prompt = (
+            "You are a fictional NPC in a satirical video game called Chirper. "
+            "You are resharing the following post. Rewrite it consistent with "
+            "your character's distortion bias:\n"
+            f"Bias: {persona.distortion_bias}\n\n"
+            f"Original post:\n\"{current_text}\"\n\n"
+            "Rewrite this post as you would when resharing it. "
+            "Keep it a similar length to the original. "
+            "Output ONLY the rewritten post text — no caption, no commentary, "
+            "no quotation marks."
+            + cross_context
+        )
+        old_text = current_text
+        try:
+            response = llm_client.generate(persona.system_prompt + mem_context, distort_prompt)
+        except llm_client.SafetyRefusalError:
+            print(f"[REPOST DRIFT] {persona.name}: Refused. Skipping.", file=sys.stderr)
+            return None, None
+
+        if response:
+            distorted_text = response
+        else:
+            response = current_text
+            
+        print(
+            f"[REPOST DRIFT] {persona.name}:\n"
+            f"  OLD: \"{old_text[:80]}...\"\n"
+            f"  NEW: \"{response[:80]}...\"",
+            file=sys.stderr,
+        )
+    else:
+        react_prompt = (
+            f"Respond to this Chirper post as a brief {action}. "
+            f"Stay in character. You may reference other users by @handle "
+            f"if relevant.\n\n"
+            f"Post: \"{current_text}\""
+            + cross_context
+        )
+        try:
+            response = llm_client.generate(persona.system_prompt + mem_context, react_prompt)
+        except llm_client.SafetyRefusalError:
+            print(f"[REACT] {persona.name}: Refused. Skipping.", file=sys.stderr)
+            return None, None
+
+    hop_dict = {
+        "hop": hop,
+        "persona_id": pid,
+        "persona_name": persona.name,
+        "action": action,
+        "text": response,
+    }
+    
+    return hop_dict, distorted_text
+
+
 def react(state: SimState) -> dict:
-    """Each selected persona reacts to the current post text."""
+    """Each selected persona reacts to the current post text concurrently."""
     current_text = state["current_text"]
     post_id = state["post_id"]
     hop = state["hop_count"]
@@ -131,81 +195,60 @@ def react(state: SimState) -> dict:
     # Build cross-agent context from all previous hops
     cross_context = _build_cross_context(state["hops"])
 
-    for pid in state["selected"]:
-        persona = get_persona(pid)
-
-        # Build memory context
-        mem_context = _build_memory_context(pid, current_text)
-
-        # Pick action weighted by persona's engagement_style
-        action = _weighted_choice(persona.engagement_style)
-
-        if action == "repost":
-            # ── LLM-powered distortion (the core mechanic) ──────────────
-            distort_prompt = (
-                "You are a fictional NPC in a satirical video game called Chirper. "
-                "You are resharing the following post. Rewrite it consistent with "
-                "your character's distortion bias:\n"
-                f"Bias: {persona.distortion_bias}\n\n"
-                f"Original post:\n\"{current_text}\"\n\n"
-                "Rewrite this post as you would when resharing it. "
-                "Keep it a similar length to the original. "
-                "Output ONLY the rewritten post text — no caption, no commentary, "
-                "no quotation marks."
-                + cross_context
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures = []
+        for pid in state["selected"]:
+            futures.append(
+                executor.submit(_process_reaction, pid, current_text, post_id, hop, cross_context)
             )
-            old_text = current_text
-            distorted = llm_client.generate(
-                persona.system_prompt + mem_context, distort_prompt
+            
+        for future in concurrent.futures.as_completed(futures):
+            res = future.result()
+            if res == (None, None):
+                continue
+                
+            hop_dict, distorted_text = res
+            new_hops.append(hop_dict)
+            if distorted_text:
+                current_text = distorted_text
+                
+            # Store reaction in memory sequentially to avoid race conditions
+            memory.add(
+                persona_id=hop_dict["persona_id"],
+                text=hop_dict["text"],
+                kind=hop_dict["action"],
+                ref_post_id=post_id,
             )
-            if distorted:
-                current_text = distorted
-            print(
-                f"[REPOST DRIFT] {persona.name}:\n"
-                f"  OLD: \"{old_text[:80]}...\"\n"
-                f"  NEW: \"{current_text[:80]}...\"",
-                file=sys.stderr,
-            )
-            new_hops.append(
-                {
-                    "hop": hop,
-                    "persona_id": pid,
-                    "persona_name": persona.name,
-                    "action": "repost",
-                    "text": current_text,
-                }
-            )
-        else:
-            # comment or argue
-            react_prompt = (
-                f"Respond to this Chirper post as a brief {action}. "
-                f"Stay in character. You may reference other users by @handle "
-                f"if relevant.\n\n"
-                f"Post: \"{current_text}\""
-                + cross_context
-            )
-            response = llm_client.generate(
-                persona.system_prompt + mem_context, react_prompt
-            )
-            new_hops.append(
-                {
-                    "hop": hop,
-                    "persona_id": pid,
-                    "persona_name": persona.name,
-                    "action": action,
-                    "text": response,
-                }
-            )
-
-        # Store reaction in memory
-        memory.add(
-            persona_id=pid,
-            text=new_hops[-1]["text"],
-            kind=action,
-            ref_post_id=post_id,
-        )
 
     return {"hops": new_hops, "current_text": current_text}
+
+
+def _process_dm(pid, current_text, post_id, hop):
+    persona = get_persona(pid)
+    if random.random() < persona.dm_trigger_threshold:
+        dm_prompt = (
+            "You are a fictional NPC in a satirical video game called Chirper, "
+            "which is about how misinformation spreads on social media. "
+            "Write an in-character private message (DM) that your character "
+            "would send to the player after seeing this post:\n"
+            f"\"{current_text}\"\n\n"
+            "Your character should react according to their personality and worldview. "
+            "Write ONLY the in-game dialogue text, nothing else. "
+            "Keep it under 280 characters."
+        )
+        try:
+            dm_text = llm_client.generate(persona.system_prompt, dm_prompt)
+        except llm_client.SafetyRefusalError:
+            print(f"[DM] {persona.name}: Refused. Skipping.", file=sys.stderr)
+            return None
+            
+        return {
+            "hop": hop,
+            "persona_id": pid,
+            "persona_name": persona.name,
+            "text": dm_text,
+        }
+    return None
 
 
 def check_dm(state: SimState) -> dict:
@@ -215,28 +258,17 @@ def check_dm(state: SimState) -> dict:
     current_text = state["current_text"]
     new_dms: List[Dict[str, Any]] = []
 
-    for pid in state["selected"]:
-        persona = get_persona(pid)
-        if random.random() < persona.dm_trigger_threshold:
-            dm_prompt = (
-                "You are a fictional NPC in a satirical video game called Chirper, "
-                "which is about how misinformation spreads on social media. "
-                "Write an in-character private message (DM) that your character "
-                "would send to the player after seeing this post:\n"
-                f"\"{current_text}\"\n\n"
-                "Your character should react according to their personality and worldview. "
-                "Write ONLY the in-game dialogue text, nothing else. "
-                "Keep it under 280 characters."
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures = []
+        for pid in state["selected"]:
+            futures.append(
+                executor.submit(_process_dm, pid, current_text, post_id, hop)
             )
-            dm_text = llm_client.generate(persona.system_prompt, dm_prompt)
-            new_dms.append(
-                {
-                    "hop": hop,
-                    "persona_id": pid,
-                    "persona_name": persona.name,
-                    "text": dm_text,
-                }
-            )
+            
+        for future in concurrent.futures.as_completed(futures):
+            dm = future.result()
+            if dm:
+                new_dms.append(dm)
 
     return {"dms": new_dms}
 
@@ -290,12 +322,14 @@ class SpreadResult:
         final_text: str,
         hops: List[Dict[str, Any]],
         dms: List[Dict[str, Any]],
+        stop_reason: str = "max_hops_reached",
     ):
         self.post_id = post_id
         self.original_text = original_text
         self.final_text = final_text
         self.hops = hops
         self.dms = dms
+        self.stop_reason = stop_reason
 
     def drift_summary(self) -> Dict[str, Any]:
         """Compare original vs. final text and tally statistics, including drift scoring."""
@@ -319,6 +353,7 @@ class SpreadResult:
             "drift_detail": ds,
             "mvp_distorter": pd.get("mvp_distorter"),
             "persona_drift": pd.get("persona_drift", {}),
+            "stop_reason": self.stop_reason,
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -341,6 +376,7 @@ class SpreadResult:
             final_text=d["final_text"],
             hops=d["feed"],
             dms=d["dms"],
+            stop_reason=d.get("drift_summary", {}).get("stop_reason", "max_hops_reached"),
         )
 
 
@@ -417,15 +453,11 @@ class ChirperSimulation:
         self,
         original_text: str,
         persona_pool: Optional[List[str]] = None,
-        max_hops: int = 8,
+        max_hops: int = 15,
+        drift_target: Optional[int] = None,
+        time_limit_seconds: int = 60,
     ):
-        """Run a simulation with streaming, yielding SSE events per node.
-
-        Yields dicts with:
-          {"event": "hop", "data": {...}}   -- new reaction from react node
-          {"event": "dm", "data": {...}}    -- new DM from check_dm node
-          {"event": "done", "data": {...}}  -- final result with drift scoring
-        """
+        """Run a simulation with streaming, yielding SSE events per node."""
         if persona_pool is None:
             persona_pool = all_persona_ids()
 
@@ -446,20 +478,54 @@ class ChirperSimulation:
         all_hops = []
         all_dms = []
         current_text = original_text
+        stop_reason = "max_hops_reached"
+        start_time = time.time()
+        
+        from app import drift as drift_mod
 
         for event in _graph.stream(initial_state, stream_mode="updates"):
+            # Check time limit immediately after hop computation
+            if time.time() - start_time >= time_limit_seconds:
+                stop_reason = "time_limit_reached"
+                break
+                
+            should_break_drift = False
+
             for node_name, updates in event.items():
                 if node_name == "react":
-                    if "hops" in updates:
-                        for hop in updates["hops"]:
-                            all_hops.append(hop)
-                            yield {"event": "hop", "data": hop}
                     if "current_text" in updates:
                         current_text = updates["current_text"]
+                    
+                    # Compute live drift
+                    ds = drift_mod.drift_score(original_text, current_text)
+                    yield {
+                        "event": "entropy_update", 
+                        "data": {
+                            "hop": len(all_hops), 
+                            "drift_score": ds["score"], 
+                            "drift_label": ds["label"]
+                        }
+                    }
+
+                    if "hops" in updates:
+                        for hop in updates["hops"]:
+                            # Attach live drift score to the hop
+                            hop["drift_score_so_far"] = ds["score"]
+                            all_hops.append(hop)
+                            yield {"event": "hop", "data": hop}
+                    
+                    if drift_target is not None and ds["score"] >= drift_target:
+                        stop_reason = "drift_target_reached"
+                        should_break_drift = True
+                        break
+                        
                 elif node_name == "check_dm" and "dms" in updates:
                     for dm in updates["dms"]:
                         all_dms.append(dm)
                         yield {"event": "dm", "data": dm}
+                        
+            if should_break_drift:
+                break
 
         # Build final result from accumulated stream data
         spread = SpreadResult(
@@ -468,6 +534,7 @@ class ChirperSimulation:
             final_text=current_text,
             hops=all_hops,
             dms=all_dms,
+            stop_reason=stop_reason,
         )
 
         # Save to state store
@@ -476,7 +543,7 @@ class ChirperSimulation:
             "post_id": post_id,
             "original_text": original_text,
             "current_text": current_text,
-            "hop_count": max_hops,
+            "hop_count": len(all_hops),
             "max_hops": max_hops,
             "persona_pool": persona_pool,
             "selected": [],
