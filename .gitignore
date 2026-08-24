@@ -21,6 +21,7 @@ env/
 
 # Storage (runtime data)
 storage/
+*.db
 
 # OS
 .DS_Store

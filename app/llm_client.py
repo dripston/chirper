@@ -14,14 +14,14 @@ from typing import Optional
 
 _MOCK_BANK = {
     "conspiracy": [
-        "Wake up people! This is CLEARLY a cover-up. Follow the money. 👁️",
+        "Wake up people! This is CLEARLY a cover-up. Follow the money.",
         "My insider source just confirmed this. They don't want you to see it.",
-        "Funny how the 'fact-checkers' are silent on this one… do your own research.",
+        "Funny how the 'fact-checkers' are silent on this one... do your own research.",
     ],
     "activist": [
-        "This is absolutely UNACCEPTABLE!! We MUST demand accountability NOW! ✊",
+        "This is absolutely UNACCEPTABLE!! We MUST demand accountability NOW!",
         "How can people stay SILENT about this?! Silence is COMPLICITY!",
-        "WE WILL NOT BE SILENCED. Share this. Amplify this. ACT. 🔥",
+        "WE WILL NOT BE SILENCED. Share this. Amplify this. ACT.",
     ],
     "corporate": [
         "Let's look at the data before jumping to conclusions. The full picture is more nuanced.",
@@ -34,16 +34,37 @@ _MOCK_BANK = {
         "You're all proving my point. This take is embarrassingly one-dimensional.",
     ],
     "engagement": [
-        "🔥 BREAKING 🔥 You won't BELIEVE what's actually going on… wait for it… 👀",
-        "THIS. CHANGES. EVERYTHING. RT if you agree, ignore if you don't care 💯",
-        "They tried to HIDE this but it's going VIRAL… 🚨🚨🚨",
+        "BREAKING -- You won't BELIEVE what's actually going on... wait for it...",
+        "THIS. CHANGES. EVERYTHING. RT if you agree, ignore if you don't care",
+        "They tried to HIDE this but it's going VIRAL...",
     ],
     "anxious": [
-        "wait is this real?? idk this is lowkey terrifying 😰",
+        "wait is this real?? idk this is lowkey terrifying",
         "okay can someone explain what's happening because I'm genuinely scared rn",
-        "should I be worried about this?? idk what to think anymore…",
+        "should I be worried about this?? idk what to think anymore...",
+    ],
+    "satirist": [
+        "lmao bruh they found microplastics in water?? next you'll tell me air has oxygen",
+        "no cap scientists just discovered water is wet. groundbreaking journalism",
+        "bro just discovered that the thing made of plastic contains plastic. give this man a nobel prize",
+    ],
+    "fact_check": [
+        "Actually, per the 2024 WHO meta-analysis, this claim is Mostly False. Source: bit.ly/3xK9mQ2",
+        "Rating: Missing Context. The study used non-standard methodology. See: pubmed.gov/38291047",
+        "This has been debunked by @FactCheckOrg. The original sample size was n=12. Misleading at best.",
+    ],
+    "eyewitness": [
+        "I literally saw this happen. My friend works at the lab where they tested it. It's worse than they're saying.",
+        "I live 2 blocks from the facility. You won't hear this on the news but I've seen the trucks at 3am.",
+        "My cousin works at the bottling plant. She told me about this MONTHS ago. Nobody listened.",
+    ],
+    "algorithm": [
+        "omg this is everywhere rn. sharing because this needs to be seen",
+        "this just showed up on my feed and wow. idk if this is true but everyone's talking about it",
+        "everyone's sharing this so it must be important. just passing it along",
     ],
 }
+
 
 _MOCK_FALLBACK = "This is a mock response from Chirper. [MOCK MODE]"
 
@@ -54,6 +75,10 @@ _IDEOLOGY_KEYWORDS = {
     "contrarian": ["contrarian", "opposite", "disagree", "devil"],
     "engagement": ["engagement", "viral", "sensationalize", "clickbait"],
     "anxious": ["anxious", "impressionable", "worried", "scared", "nervous"],
+    "satirist": ["ironic", "irony", "sarcasm", "joke", "meme", "deadpan"],
+    "fact_check": ["fact-check", "citation", "source", "debunked", "pedantic"],
+    "eyewitness": ["eyewitness", "first-hand", "saw this", "proximity", "neighbor"],
+    "algorithm": ["algorithmic", "amplification", "trending", "passive", "boost"],
 }
 
 
