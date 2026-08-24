@@ -413,6 +413,81 @@ class ChirperSimulation:
         )
         return spread, dict(result)
 
+    def run_streaming(
+        self,
+        original_text: str,
+        persona_pool: Optional[List[str]] = None,
+        max_hops: int = 8,
+    ):
+        """Run a simulation with streaming, yielding SSE events per node.
+
+        Yields dicts with:
+          {"event": "hop", "data": {...}}   -- new reaction from react node
+          {"event": "dm", "data": {...}}    -- new DM from check_dm node
+          {"event": "done", "data": {...}}  -- final result with drift scoring
+        """
+        if persona_pool is None:
+            persona_pool = all_persona_ids()
+
+        post_id = str(uuid.uuid4())[:8]
+
+        initial_state: SimState = {
+            "post_id": post_id,
+            "original_text": original_text,
+            "current_text": original_text,
+            "hop_count": 0,
+            "max_hops": max_hops,
+            "persona_pool": persona_pool,
+            "selected": [],
+            "hops": [],
+            "dms": [],
+        }
+
+        all_hops = []
+        all_dms = []
+        current_text = original_text
+
+        for event in _graph.stream(initial_state, stream_mode="updates"):
+            for node_name, updates in event.items():
+                if node_name == "react":
+                    if "hops" in updates:
+                        for hop in updates["hops"]:
+                            all_hops.append(hop)
+                            yield {"event": "hop", "data": hop}
+                    if "current_text" in updates:
+                        current_text = updates["current_text"]
+                elif node_name == "check_dm" and "dms" in updates:
+                    for dm in updates["dms"]:
+                        all_dms.append(dm)
+                        yield {"event": "dm", "data": dm}
+
+        # Build final result from accumulated stream data
+        spread = SpreadResult(
+            post_id=post_id,
+            original_text=original_text,
+            final_text=current_text,
+            hops=all_hops,
+            dms=all_dms,
+        )
+
+        # Save to state store
+        from app import state_store
+        sim_state = {
+            "post_id": post_id,
+            "original_text": original_text,
+            "current_text": current_text,
+            "hop_count": max_hops,
+            "max_hops": max_hops,
+            "persona_pool": persona_pool,
+            "selected": [],
+            "hops": all_hops,
+            "dms": all_dms,
+        }
+        state_store.save(post_id, spread.to_dict(), sim_state)
+
+        yield {"event": "done", "data": spread.to_dict()}
+
+
 
 def generate_single_reaction(
     persona_id: str,

@@ -1,13 +1,15 @@
 """
-Chirper — FastAPI entry point.
+Chirper -- FastAPI entry point.
 
 Provides the API server for the Chirper simulator, including player
-interaction endpoints (reply, dm-reply, retract, edit).
+interaction endpoints (reply, dm-reply, retract, edit) and SSE streaming.
 """
 
+import json
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.graph import ChirperSimulation, SpreadResult, generate_single_reaction
@@ -17,7 +19,7 @@ from app import state_store
 app = FastAPI(
     title="Chirper",
     description="Satirical social-strategy simulator about misinformation spread.",
-    version="0.2.5",
+    version="0.2.6",
 )
 
 _sim = ChirperSimulation()
@@ -59,7 +61,7 @@ class PersonaSummary(BaseModel):
 @app.get("/health")
 async def health_check():
     """Basic liveness probe."""
-    return {"status": "ok", "phase": "2.5"}
+    return {"status": "ok", "phase": "2.6"}
 
 
 @app.get("/personas", response_model=List[PersonaSummary])
@@ -79,7 +81,7 @@ async def list_personas():
 @app.post("/post")
 async def create_post(req: PostRequest):
     """
-    Run a full Chirper simulation.
+    Run a full Chirper simulation (non-streaming).
 
     Send a post into the agent network and watch it propagate, distort,
     and generate DMs across up to max_hops hops.
@@ -92,6 +94,38 @@ async def create_post(req: PostRequest):
     # Persist state so player can interact with this simulation later
     state_store.save(spread.post_id, spread.to_dict(), sim_state)
     return spread.to_dict()
+
+
+@app.post("/post/stream")
+async def create_post_stream(req: PostRequest):
+    """
+    Run a Chirper simulation with Server-Sent Events (SSE) streaming.
+
+    Each hop/DM is streamed as it happens so you don't have to wait
+    for the full simulation to complete. Events:
+      - event: hop     -- a persona reacted (comment/argue/repost)
+      - event: dm      -- a persona sent a DM
+      - event: done    -- simulation complete, full result with drift scoring
+    """
+    def event_generator():
+        for event in _sim.run_streaming(
+            original_text=req.text,
+            persona_pool=req.persona_ids,
+            max_hops=req.max_hops or 8,
+        ):
+            event_type = event["event"]
+            data = json.dumps(event["data"], ensure_ascii=False)
+            yield f"event: {event_type}\ndata: {data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ── Player interaction endpoints ─────────────────────────────────────────────
