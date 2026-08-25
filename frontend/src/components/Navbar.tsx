@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { Search, Bell, MessageSquare, User } from 'lucide-react';
 
 export function Navbar() {

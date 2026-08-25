@@ -17,6 +17,8 @@ import random
 import sys
 import uuid
 import time
+import queue
+import threading
 import concurrent.futures
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
@@ -24,6 +26,8 @@ from langgraph.graph import END, StateGraph
 
 from app import llm_client, memory
 from app.personas import all_persona_ids, get_persona
+
+_active_queues = {}
 
 # ── State schema (TypedDict for LangGraph) ───────────────────────────────────
 
@@ -219,6 +223,21 @@ def react(state: SimState) -> dict:
                 kind=hop_dict["action"],
                 ref_post_id=post_id,
             )
+            
+            q = _active_queues.get(post_id)
+            if q:
+                from app import drift as drift_mod
+                ds = drift_mod.drift_score(state["original_text"], current_text)
+                hop_dict["drift_score_so_far"] = ds["score"]
+                q.put({
+                    "event": "entropy_update", 
+                    "data": {
+                        "hop": hop, 
+                        "drift_score": ds["score"], 
+                        "drift_label": ds["label"]
+                    }
+                })
+                q.put({"event": "hop", "data": hop_dict})
 
     return {"hops": new_hops, "current_text": current_text}
 
@@ -269,6 +288,9 @@ def check_dm(state: SimState) -> dict:
             dm = future.result()
             if dm:
                 new_dms.append(dm)
+                q = _active_queues.get(post_id)
+                if q:
+                    q.put({"event": "dm", "data": dm})
 
     return {"dms": new_dms}
 
@@ -475,84 +497,89 @@ class ChirperSimulation:
             "dms": [],
         }
 
-        all_hops = []
-        all_dms = []
-        current_text = original_text
-        stop_reason = "max_hops_reached"
-        start_time = time.time()
-        
-        from app import drift as drift_mod
+        q = queue.Queue()
+        _active_queues[post_id] = q
 
-        for event in _graph.stream(initial_state, stream_mode="updates"):
-            # Check time limit immediately after hop computation
-            if time.time() - start_time >= time_limit_seconds:
-                stop_reason = "time_limit_reached"
-                break
-                
-            should_break_drift = False
+        def _bg_run():
+            all_hops = []
+            all_dms = []
+            current_text = original_text
+            stop_reason = "max_hops_reached"
+            start_time = time.time()
+            
+            from app import drift as drift_mod
 
-            for node_name, updates in event.items():
-                if node_name == "react":
-                    if "current_text" in updates:
-                        current_text = updates["current_text"]
-                    
-                    # Compute live drift
-                    ds = drift_mod.drift_score(original_text, current_text)
-                    yield {
-                        "event": "entropy_update", 
-                        "data": {
-                            "hop": len(all_hops), 
-                            "drift_score": ds["score"], 
-                            "drift_label": ds["label"]
-                        }
-                    }
-
-                    if "hops" in updates:
-                        for hop in updates["hops"]:
-                            # Attach live drift score to the hop
-                            hop["drift_score_so_far"] = ds["score"]
-                            all_hops.append(hop)
-                            yield {"event": "hop", "data": hop}
-                    
-                    if drift_target is not None and ds["score"] >= drift_target:
-                        stop_reason = "drift_target_reached"
-                        should_break_drift = True
+            try:
+                for event in _graph.stream(initial_state, stream_mode="updates"):
+                    # Check time limit immediately after hop computation
+                    if time.time() - start_time >= time_limit_seconds:
+                        stop_reason = "time_limit_reached"
                         break
                         
-                elif node_name == "check_dm" and "dms" in updates:
-                    for dm in updates["dms"]:
-                        all_dms.append(dm)
-                        yield {"event": "dm", "data": dm}
-                        
-            if should_break_drift:
+                    should_break_drift = False
+
+                    for node_name, updates in event.items():
+                        if node_name == "react":
+                            if "current_text" in updates:
+                                current_text = updates["current_text"]
+                            if "hops" in updates:
+                                all_hops.extend(updates["hops"])
+                            
+                            ds = drift_mod.drift_score(original_text, current_text)
+                            if drift_target is not None and ds["score"] >= drift_target:
+                                stop_reason = "drift_target_reached"
+                                should_break_drift = True
+                                break
+                                
+                        elif node_name == "check_dm" and "dms" in updates:
+                            all_dms.extend(updates["dms"])
+                            
+                    if should_break_drift:
+                        break
+
+                # Build final result from accumulated stream data
+                spread = SpreadResult(
+                    post_id=post_id,
+                    original_text=original_text,
+                    final_text=current_text,
+                    hops=all_hops,
+                    dms=all_dms,
+                    stop_reason=stop_reason,
+                )
+
+                # Save to state store
+                from app import state_store
+                sim_state = {
+                    "post_id": post_id,
+                    "original_text": original_text,
+                    "current_text": current_text,
+                    "hop_count": len(all_hops),
+                    "max_hops": max_hops,
+                    "persona_pool": persona_pool,
+                    "selected": [],
+                    "hops": all_hops,
+                    "dms": all_dms,
+                }
+                state_store.save(post_id, spread.to_dict(), sim_state)
+                
+                # Signal completion
+                q.put({"event": "done", "data": {"drift_summary": spread.drift_summary()}})
+                
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                q.put({"event": "error", "data": {"message": str(e)}})
+            finally:
+                q.put(None)
+                _active_queues.pop(post_id, None)
+
+        threading.Thread(target=_bg_run, daemon=True).start()
+
+        while True:
+            item = q.get()
+            if item is None:
                 break
-
-        # Build final result from accumulated stream data
-        spread = SpreadResult(
-            post_id=post_id,
-            original_text=original_text,
-            final_text=current_text,
-            hops=all_hops,
-            dms=all_dms,
-            stop_reason=stop_reason,
-        )
-
-        # Save to state store
-        from app import state_store
-        sim_state = {
-            "post_id": post_id,
-            "original_text": original_text,
-            "current_text": current_text,
-            "hop_count": len(all_hops),
-            "max_hops": max_hops,
-            "persona_pool": persona_pool,
-            "selected": [],
-            "hops": all_hops,
-            "dms": all_dms,
-        }
-        state_store.save(post_id, spread.to_dict(), sim_state)
-
-        yield {"event": "done", "data": spread.to_dict()}
+            yield item
 
 
 

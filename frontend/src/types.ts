@@ -11,6 +11,7 @@ export interface PostReaction {
   persona_name: string;
   action: 'comment' | 'argue' | 'repost';
   text: string;
+  drift_score_so_far?: number;
 }
 
 export interface DirectMessage {
@@ -33,6 +34,7 @@ export interface DriftSummary {
   drift_score: number;
   drift_label: string;
   mvp_distorter: string;
+  stop_reason: string;
 }
 
 export interface SimulationResult {
@@ -47,4 +49,6 @@ export interface SimulationResult {
 export type StreamEvent = 
   | { type: 'hop'; data: PostReaction }
   | { type: 'dm'; data: DirectMessage }
-  | { type: 'done'; data: SimulationResult };
+  | { type: 'done'; data: SimulationResult }
+  | { type: 'entropy_update'; data: { hop: number; drift_score: number; drift_label: string } }
+  | { type: 'error'; data: { message: string } };

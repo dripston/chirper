@@ -1,7 +1,7 @@
-import React from 'react';
 import type { PostReaction } from '../types';
-import { MessageCircle, Repeat2, ArrowUpToLine, ArrowDownToLine, MoreHorizontal, ShieldAlert, Cpu } from 'lucide-react';
+import { MessageCircle, Repeat2, Heart, BarChart2, Share, ShieldAlert } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { VerifiedBadge } from './VerifiedBadge';
 
 interface PostCardProps {
   post: PostReaction;
@@ -10,89 +10,153 @@ interface PostCardProps {
 export function PostCard({ post }: PostCardProps) {
   const isRepost = post.action === 'repost';
   const isArgue = post.action === 'argue';
+  const isComment = post.action === 'comment';
 
-  let icon = <Cpu size={14} color="var(--text-muted)" />;
-  let badgeLabel = '';
-  let badgeColor = 'var(--text-muted)';
-  
+  // Format action text
+  let actionText = '';
   if (isRepost) {
-    icon = <Repeat2 size={14} color="var(--text-secondary)" />;
-    badgeLabel = 'REPOST';
-    badgeColor = 'var(--text-primary)';
+    actionText = `${post.persona_name} reposted`;
   } else if (isArgue) {
-    icon = <ShieldAlert size={14} color="var(--text-secondary)" />;
-    badgeLabel = 'ARGUMENT';
-    badgeColor = 'var(--text-primary)';
+    actionText = `${post.persona_name} quoted`;
   }
+
+  // Fallback avatar handling
+  const avatarUrl = `/avatars/${post.persona_id}.jpg`;
 
   return (
     <motion.article 
       layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.98 }}
-      transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      className="glass-panel glass-panel-hover"
-      style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="x-post"
+      style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
     >
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ 
-            width: 32, height: 32, borderRadius: '50%', 
-            background: 'var(--surface-active)', 
-            display: 'flex', alignItems: 'center', justifyContent: 'center', 
-            border: '1px solid var(--border-color)'
-          }}>
-            {icon}
+      {/* Top Action Label (e.g. User Reposted) */}
+      {(isRepost || isArgue) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 36, marginBottom: 4 }}>
+          {isRepost ? <Repeat2 size={14} color="var(--text-secondary)" /> : <ShieldAlert size={14} color="var(--text-secondary)" />}
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 700 }}>
+            {actionText}
+          </span>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 12 }}>
+        {/* Left Column: Avatar */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <img 
+            src={avatarUrl} 
+            alt={post.persona_name} 
+            className="x-avatar"
+            onError={(e) => {
+              // Fallback if image fails to load
+              e.currentTarget.style.display = 'none';
+              if (e.currentTarget.nextElementSibling) {
+                (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex';
+              }
+            }}
+          />
+          {/* Fallback circle */}
+          <div className="x-avatar" style={{ display: 'none', background: 'var(--accent-primary)', color: 'white', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+            {post.persona_name.charAt(0).toUpperCase()}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="font-body" style={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: 14 }}>
+          
+          {/* Vertical line for threaded comments */}
+          {isComment && (
+            <div style={{ width: 2, flex: 1, background: 'var(--border-color)', marginTop: 4, marginBottom: -12 }} />
+          )}
+        </div>
+
+        {/* Right Column: Content */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span className="font-body" style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
               {post.persona_name}
             </span>
-            <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>·</span>
-            <span className="font-mono" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-              Hop {post.hop}
-            </span>
+            <VerifiedBadge />
+            <span style={{ color: 'var(--text-secondary)', fontSize: 15 }}>@{post.persona_id}</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: 15 }}>·</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: 15, textDecoration: 'hover:underline' }}>{post.hop}h</span>
+          </div>
+
+          {/* Replying to... */}
+          {isComment && (
+            <div style={{ fontSize: 15, color: 'var(--text-secondary)', marginTop: -2, marginBottom: 4 }}>
+              Replying to <span style={{ color: 'var(--accent-primary)' }}>@original</span>
+            </div>
+          )}
+
+          {/* Text Content */}
+          <p className="font-body" style={{ fontSize: 15, lineHeight: 1.5, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
+            {post.text}
+          </p>
+
+          {/* Quote Tweet Box (for Reposts) */}
+          {isRepost && (
+            <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--border-color)', borderRadius: 16, cursor: 'pointer', transition: 'background 0.2s' }} className="hover:bg-[var(--surface-active)]">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                <span className="font-body" style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Original Poster</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 15 }}>@original</span>
+              </div>
+              <p className="font-body" style={{ fontSize: 15, color: 'var(--text-primary)' }}>
+                [Content quoted from previous hop in thread...]
+              </p>
+            </div>
+          )}
+
+          {/* Action Bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, maxWidth: 425 }}>
+            <button className="x-icon-btn group" style={{ color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ padding: 8, borderRadius: '50%', transition: '0.2s' }} className="hover:bg-[rgba(29,155,240,0.1)] hover:text-[#1d9bf0]">
+                  <MessageCircle size={18.5} />
+                </div>
+                <span style={{ fontSize: 13, transition: '0.2s' }} className="hover:text-[#1d9bf0]">
+                  {Math.floor(Math.random() * 50) + 1}
+                </span>
+              </div>
+            </button>
+            
+            <button className="x-icon-btn group" style={{ color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ padding: 8, borderRadius: '50%', transition: '0.2s' }} className="hover:bg-[rgba(0,186,124,0.1)] hover:text-[#00ba7c]">
+                  <Repeat2 size={18.5} />
+                </div>
+                <span style={{ fontSize: 13, transition: '0.2s' }} className="hover:text-[#00ba7c]">
+                  {Math.floor(Math.random() * 200) + 10}
+                </span>
+              </div>
+            </button>
+
+            <button className="x-icon-btn group" style={{ color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ padding: 8, borderRadius: '50%', transition: '0.2s' }} className="hover:bg-[rgba(249,24,128,0.1)] hover:text-[#f91880]">
+                  <Heart size={18.5} />
+                </div>
+                <span style={{ fontSize: 13, transition: '0.2s' }} className="hover:text-[#f91880]">
+                  {Math.floor(Math.random() * 900) + 100}
+                </span>
+              </div>
+            </button>
+
+            <button className="x-icon-btn group" style={{ color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ padding: 8, borderRadius: '50%', transition: '0.2s' }} className="hover:bg-[rgba(29,155,240,0.1)] hover:text-[#1d9bf0]">
+                  <BarChart2 size={18.5} />
+                </div>
+                <span style={{ fontSize: 13, transition: '0.2s' }} className="hover:text-[#1d9bf0]">
+                  {(Math.random() * 10).toFixed(1)}K
+                </span>
+              </div>
+            </button>
+
+            <div style={{ display: 'flex' }}>
+              <button className="x-icon-btn" style={{ padding: 8, borderRadius: '50%', transition: '0.2s' }}><Share size={18.5} /></button>
+            </div>
           </div>
         </div>
-        
-        {badgeLabel && (
-          <span className="font-display" style={{ 
-            padding: '2px 6px', borderRadius: 4, 
-            background: 'var(--surface-active)', color: badgeColor, 
-            fontSize: 10, fontWeight: 500, letterSpacing: '0.05em', 
-            border: '1px solid var(--border-color)' 
-          }}>
-            {badgeLabel}
-          </span>
-        )}
-      </header>
-
-      <div style={{ paddingLeft: 44 }}>
-        <p className="font-body" style={{ 
-          fontSize: 14, lineHeight: 1.6, color: 'var(--text-primary)'
-        }}>
-          {post.text}
-        </p>
       </div>
-
-      <footer style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, paddingLeft: 44 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <button className="btn" style={{ padding: '4px 6px' }}><ArrowUpToLine size={14} /></button>
-          <span className="font-mono" style={{ fontSize: 12, padding: '0 4px', color: 'var(--text-secondary)' }}>{(Math.random() * 10).toFixed(1)}k</span>
-          <button className="btn" style={{ padding: '4px 6px' }}><ArrowDownToLine size={14} /></button>
-        </div>
-        
-        <button className="btn" style={{ padding: '4px 8px' }}>
-          <MessageCircle size={14} /> <span style={{fontSize: 12}}>Reply</span>
-        </button>
-        <button className="btn" style={{ padding: '4px 8px' }}>
-          <Repeat2 size={14} /> <span style={{fontSize: 12}}>Share</span>
-        </button>
-        <button className="btn" style={{ marginLeft: 'auto', padding: '4px 8px' }}>
-          <MoreHorizontal size={14} />
-        </button>
-      </footer>
     </motion.article>
   );
 }

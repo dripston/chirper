@@ -41,7 +41,9 @@ _sim = ChirperSimulation()
 class PostRequest(BaseModel):
     text: str
     persona_ids: Optional[List[str]] = None
-    max_hops: Optional[int] = 8
+    max_hops: Optional[int] = 15
+    drift_target: Optional[int] = None
+    time_limit_seconds: Optional[int] = 60
 
 
 class ReplyRequest(BaseModel):
@@ -118,14 +120,20 @@ async def create_post_stream(req: PostRequest):
       - event: done    -- simulation complete, full result with drift scoring
     """
     def event_generator():
-        for event in _sim.run_streaming(
-            original_text=req.text,
-            persona_pool=req.persona_ids,
-            max_hops=req.max_hops or 8,
-        ):
-            event_type = event["event"]
-            data = json.dumps(event["data"], ensure_ascii=False)
-            yield f"event: {event_type}\ndata: {data}\n\n"
+        try:
+            for event in _sim.run_streaming(
+                original_text=req.text,
+                persona_pool=req.persona_ids,
+                max_hops=req.max_hops or 15,
+                drift_target=req.drift_target,
+                time_limit_seconds=req.time_limit_seconds or 60,
+            ):
+                event_type = event["event"]
+                data = json.dumps(event["data"], ensure_ascii=False)
+                yield f"event: {event_type}\ndata: {data}\n\n"
+        except Exception as e:
+            error_data = json.dumps({"message": str(e)}, ensure_ascii=False)
+            yield f"event: error\ndata: {error_data}\n\n"
 
     return StreamingResponse(
         event_generator(),
