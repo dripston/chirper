@@ -1,17 +1,17 @@
-import { Home, Search, Bell, Mail, User, Cpu } from 'lucide-react';
+import { Home, Search, Bell, Mail, User, Cpu, Network } from 'lucide-react';
 
 interface SidebarProps {
   activePersonaId: string | null;
+  notificationCount: number;
 }
 
-export function Sidebar({ activePersonaId }: SidebarProps) {
+export function Sidebar({ activePersonaId, notificationCount }: SidebarProps) {
   return (
     <aside style={{ width: 275, padding: '12px 24px', display: 'flex', flexDirection: 'column', gap: 8, height: '100vh', position: 'sticky', top: 0 }}>
       {/* Logo */}
-      <div style={{ padding: '12px', marginBottom: 16 }}>
-        <svg viewBox="0 0 24 24" aria-hidden="true" style={{ width: 32, height: 32, fill: 'var(--text-primary)' }}>
-          <g><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 22.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></g>
-        </svg>
+      <div style={{ padding: '12px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, color: 'var(--text-primary)' }}>
+        <Network size={32} color="var(--accent-primary)" />
+        <span className="font-display" style={{ fontSize: 24, fontWeight: 800 }}>Chirper</span>
       </div>
 
       {/* Nav Links */}
@@ -22,8 +22,16 @@ export function Sidebar({ activePersonaId }: SidebarProps) {
         <a href="#" style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '12px', color: 'var(--text-primary)', textDecoration: 'none', borderRadius: 9999, transition: 'background 0.2s', fontSize: 20 }}>
           <Search size={28} /> Explore
         </a>
-        <a href="#" style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '12px', color: 'var(--text-primary)', textDecoration: 'none', borderRadius: 9999, transition: 'background 0.2s', fontSize: 20 }}>
-          <Bell size={28} /> Notifications
+        <a href="#" style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '12px', color: 'var(--text-primary)', textDecoration: 'none', borderRadius: 9999, transition: 'background 0.2s', fontSize: 20, position: 'relative' }}>
+          <div style={{ position: 'relative' }}>
+            <Bell size={28} />
+            {notificationCount > 0 && (
+              <div style={{ position: 'absolute', top: -2, right: -2, background: 'var(--accent-error)', color: 'white', fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--bg-color)', padding: '0 4px' }}>
+                {notificationCount}
+              </div>
+            )}
+          </div>
+          Notifications
         </a>
         <a href="#" style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '12px', color: 'var(--text-primary)', textDecoration: 'none', borderRadius: 9999, transition: 'background 0.2s', fontSize: 20 }}>
           <Mail size={28} /> Messages

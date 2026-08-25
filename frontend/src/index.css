@@ -1,22 +1,22 @@
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg-color: #000000;
-  --surface: #000000;
-  --surface-hover: rgba(255, 255, 255, 0.03);
-  --surface-active: rgba(255, 255, 255, 0.08);
+  --bg-color: #09090b;
+  --surface: #09090b;
+  --surface-hover: rgba(255, 255, 255, 0.05);
+  --surface-active: rgba(255, 255, 255, 0.1);
   
-  --text-primary: #e7e9ea;
-  --text-secondary: #71767b;
-  --text-muted: #536471;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
   
-  --border-color: rgb(47, 51, 54);
-  --border-hover: rgb(62, 65, 68);
+  --border-color: #27272a;
+  --border-hover: #3f3f46;
   
-  --accent-primary: #1d9bf0;
-  --accent-error: #f4212e;
-  --accent-blue: #1d9bf0;
-  --accent-purple: #bf5af2;
+  --accent-primary: #8b5cf6;
+  --accent-error: #ef4444;
+  --accent-blue: #3b82f6;
+  --accent-purple: #8b5cf6;
 }
 
 * {
@@ -139,7 +139,7 @@ body {
   padding: 8px 16px;
 }
 .btn-primary:hover:not(:disabled) {
-  background: #1a8cd8;
+  background: #7c3aed; /* darker violet */
 }
 .btn-primary:disabled {
   opacity: 0.5;

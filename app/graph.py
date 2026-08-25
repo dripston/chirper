@@ -415,6 +415,7 @@ class ChirperSimulation:
         max_hops: int = 8,
     ) -> tuple:
         """Run a simulation. Returns (SpreadResult, final_sim_state_dict)."""
+        memory.reset()
         if persona_pool is None:
             persona_pool = all_persona_ids()
 
@@ -480,6 +481,7 @@ class ChirperSimulation:
         time_limit_seconds: int = 60,
     ):
         """Run a simulation with streaming, yielding SSE events per node."""
+        memory.reset()
         if persona_pool is None:
             persona_pool = all_persona_ids()
 

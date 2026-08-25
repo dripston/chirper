@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { Feed } from './components/Feed';
 import { InsightsPanel } from './components/InsightsPanel';
@@ -93,9 +92,8 @@ function App() {
 
   return (
     <div className="app-container">
-      <Navbar />
       <div className="main-content">
-        <Sidebar activePersonaId={activePersonaId} />
+        <Sidebar activePersonaId={activePersonaId} notificationCount={feed.length} />
         
         <Feed 
           onStartSimulation={startSimulation}

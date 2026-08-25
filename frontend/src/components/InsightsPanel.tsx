@@ -24,15 +24,6 @@ export function InsightsPanel({ dms, driftSummary, liveDrift }: InsightsProps) {
         />
       </div>
 
-      {/* Subscribe to Premium */}
-      <div className="x-panel" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <h2 className="font-body" style={{ fontSize: 20, fontWeight: 800 }}>Subscribe to Premium</h2>
-        <p className="font-body" style={{ fontSize: 15, lineHeight: 1.3, color: 'var(--text-primary)' }}>
-          Subscribe to unlock new features and if eligible, receive a share of ads revenue.
-        </p>
-        <button className="btn-primary" style={{ alignSelf: 'flex-start', marginTop: 4 }}>Subscribe</button>
-      </div>
-
       {/* What's happening (Live Drift) */}
       <div className="x-panel" style={{ display: 'flex', flexDirection: 'column' }}>
         <h2 className="font-body" style={{ fontSize: 20, fontWeight: 800, padding: '12px 16px' }}>What's happening</h2>
