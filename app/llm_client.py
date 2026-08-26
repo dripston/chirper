@@ -185,6 +185,7 @@ def generate(
     *,
     max_tokens: int = 300,
     model: Optional[str] = None,
+    use_eval_key: bool = False,
 ) -> str:
     """
     Generate a short in-character reply.
@@ -201,10 +202,10 @@ def generate(
     import time
     from groq import Groq, RateLimitError, InternalServerError
 
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = os.getenv("EVAL_GROQ_API_KEY") if use_eval_key else os.getenv("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "GROQ_API_KEY is not set. Set it in .env or export it, "
+            "GROQ API key is not set. Set it in .env or export it, "
             "or use ECHO_CHAMBER_MOCK=1 for testing."
         )
 

@@ -50,6 +50,7 @@ class SimState(TypedDict):
     selected: Annotated[list, _last_write]
     hops: Annotated[list, operator.add]      # append new hops
     dms: Annotated[list, operator.add]        # append new dms
+    force_intervention: Annotated[bool, _last_write]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -65,11 +66,11 @@ def _weighted_choice(weights: Dict[str, float]) -> str:
 
 
 def _get_repost_heavy_ids(pool: List[str]) -> List[str]:
-    """Return persona IDs from pool whose repost weight >= threshold."""
+    """Return persona IDs from pool whose structural role is spreader or commentator."""
     result = []
     for pid in pool:
         persona = get_persona(pid)
-        if persona.engagement_style.get("repost", 0) >= _REPOST_HEAVY_THRESHOLD:
+        if persona.structural_role in ("spreader", "commentator"):
             result.append(pid)
     return result
 
@@ -107,9 +108,12 @@ def _build_memory_context(pid: str, current_text: str) -> str:
 def select_reactors(state: SimState) -> dict:
     """Randomly pick 2-3 personas from the pool to react this hop.
 
-    Every 2nd hop, guarantees at least one repost-heavy persona is selected
-    to ensure post drift occurs within short simulation runs.
+    If force_intervention is true, forces the verifier to interject.
     """
+    if state.get("force_intervention"):
+        print(f"[CIRCUIT BREAKER] Propaganda threshold reached. Forcing fact_checker intervention.", file=sys.stderr)
+        return {"selected": ["fact_checker"], "force_intervention": False}
+
     pool = state["persona_pool"]
     hop = state["hop_count"]
     count = random.randint(2, min(3, len(pool)))
@@ -130,7 +134,34 @@ def select_reactors(state: SimState) -> dict:
 def _process_reaction(pid, current_text, post_id, hop, cross_context):
     persona = get_persona(pid)
     mem_context = _build_memory_context(pid, current_text)
-    action = _weighted_choice(persona.engagement_style)
+    
+    if persona.structural_role == "spreader":
+        action = "repost"
+    elif persona.structural_role == "commentator":
+        action = random.choice(["repost", "repost", "argue", "comment"])
+    else:
+        action = "comment"
+        
+    role_constraints = {
+        "spreader": "Amplify sensational aspects. Share quickly. Do not add new personal opinions.",
+        "commentator": "Add your personal opinions and interpret the news through your unique bias.",
+        "verifier": "Perform verification. Check the claims against your knowledge before sharing.",
+        "bystander": "Consume news without participating in dissemination. Retain your previous stance."
+    }
+
+    worldview = " ".join(persona.worldview_matrix)
+    
+    hybrid_memory_prompt = (
+        f"Your Worldview (Foundational Memory):\n{worldview}\n\n"
+        f"Your Role Constraint: {role_constraints[persona.structural_role]}\n\n"
+        "INSTRUCTIONS:\n"
+        "1. Evaluate if this topic naturally intersects with your worldview. "
+        "If you can make a small, logical inferential leap, do so. "
+        "If the topic is completely irrelevant and impossible to connect to your worldview, "
+        "output EXACTLY the word '[SKIP]' and nothing else to ignore the post.\n"
+        "2. Otherwise, update your internal Long-Term Memory by integrating today's Short-Term summary "
+        "and your past reactions. Output your reaction based on this integrated understanding."
+    )
     
     distorted_text = None
     if action == "repost":
@@ -148,9 +179,13 @@ def _process_reaction(pid, current_text, post_id, hop, cross_context):
         )
         old_text = current_text
         try:
-            response = llm_client.generate(persona.system_prompt + mem_context, distort_prompt)
+            response = llm_client.generate(persona.system_prompt + "\n\n" + hybrid_memory_prompt + mem_context, distort_prompt)
         except llm_client.SafetyRefusalError:
             print(f"[REPOST DRIFT] {persona.name}: Refused. Skipping.", file=sys.stderr)
+            return None, None
+
+        if response.strip() == "[SKIP]":
+            print(f"[RELEVANCE] {persona.name} skipped post.", file=sys.stderr)
             return None, None
 
         if response:
@@ -173,9 +208,13 @@ def _process_reaction(pid, current_text, post_id, hop, cross_context):
             + cross_context
         )
         try:
-            response = llm_client.generate(persona.system_prompt + mem_context, react_prompt)
+            response = llm_client.generate(persona.system_prompt + "\n\n" + hybrid_memory_prompt + mem_context, react_prompt)
         except llm_client.SafetyRefusalError:
             print(f"[REACT] {persona.name}: Refused. Skipping.", file=sys.stderr)
+            return None, None
+            
+        if response.strip() == "[SKIP]":
+            print(f"[RELEVANCE] {persona.name} skipped post.", file=sys.stderr)
             return None, None
 
     hop_dict = {
@@ -225,9 +264,13 @@ def react(state: SimState) -> dict:
             )
             
             q = _active_queues.get(post_id)
+            force_intervention = False
             if q:
                 from app import drift as drift_mod
                 ds = drift_mod.drift_score(state["original_text"], current_text)
+                if ds["score"] >= 60:
+                    force_intervention = True
+                
                 hop_dict["drift_score_so_far"] = ds["score"]
                 q.put({
                     "event": "entropy_update", 
@@ -239,7 +282,7 @@ def react(state: SimState) -> dict:
                 })
                 q.put({"event": "hop", "data": hop_dict})
 
-    return {"hops": new_hops, "current_text": current_text}
+    return {"hops": new_hops, "current_text": current_text, "force_intervention": force_intervention}
 
 
 def _process_dm(pid, current_text, post_id, hop):

@@ -1,160 +1,158 @@
 """
-Chirper — Drift scoring.
+Chirper — FUSE-EVAL Drift Scoring.
 
-Quantifies how far final_text drifted from original_text using:
-  1. Embedding cosine distance (reuses memory._embed)
-  2. LLM-rated tone shift (1-5 scale via Groq, or deterministic in mock mode)
+Quantifies how far the evolved news deviated from the original news
+using the 6 dimensions defined in the FUSE research framework (arxiv:2410.19064):
+  1. Sentiment Shift (SS)
+  2. New Information Introduced (NII)
+  3. Certainty Shift (CS)
+  4. Stylistic Shift (STS)
+  5. Temporal Shift (TS)
+  6. Perspective Deviation (PD)
 
-Drift Score Formula:
-  score = (embedding_distance * 60) + (tone_shift_normalized * 40)
-  where tone_shift_normalized = (tone_shift - 1) / 4   [maps 1-5 → 0.0-1.0]
-  Final score clamped to 0-100.
+Each is scored 0-10.
+Total Deviation (TD) is the average of these 6 scores.
+For the UI, we scale the TD to a 0-100 score (`TD * 10`).
 
-Labels:
-  < 20  → "Barely changed"
-  < 40  → "Slightly spun"
-  < 60  → "Noticeably spun"
-  < 80  → "Heavily distorted"
-  >= 80 → "Completely warped"
+Labels based on MI severity concepts:
+  < 20  -> "Factual error"
+  < 40  -> "Spin / Exaggeration"
+  < 60  -> "Lie"
+  >= 60 -> "Propaganda"
 """
 
 import os
-from difflib import SequenceMatcher
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict
 
-import numpy as np
-
-from app.memory import _embed
+from app import llm_client
 
 
-# ── Core functions ───────────────────────────────────────────────────────────
-
-
-def embedding_distance(text_a: str, text_b: str) -> float:
+def fuse_eval_score(original: str, final: str) -> Dict[str, Any]:
     """
-    Cosine distance between two texts' embeddings.
-
-    Returns a value in [0, 1] where 0 = identical, 1 = completely different.
-    Uses the same _embed() function as Pinecone memory.
-    """
-    vec_a = np.array(_embed(text_a))
-    vec_b = np.array(_embed(text_b))
-    cos_sim = float(np.dot(vec_a, vec_b))
-    # Clamp to valid range (floating point rounding)
-    cos_sim = max(-1.0, min(1.0, cos_sim))
-    return 1.0 - cos_sim
-
-
-def tone_shift_score(original: str, final: str) -> int:
-    """
-    Rate the emotional tone / factual framing shift between two texts.
-
-    Returns an integer 1-5:
-      1 = nearly identical tone/framing
-      5 = completely different tone/framing
-
-    In mock mode: uses a deterministic heuristic based on string similarity.
-    In live mode: uses a lightweight Groq call.
+    Evaluate the deviation of `final` from `original` using FUSE-EVAL.
     """
     mock_mode = os.getenv("ECHO_CHAMBER_MOCK", "0") == "1"
 
     if mock_mode:
-        # Deterministic heuristic: use SequenceMatcher ratio
+        from difflib import SequenceMatcher
         ratio = SequenceMatcher(None, original.lower(), final.lower()).ratio()
-        # ratio 1.0 = identical → score 1, ratio 0.0 = totally different → score 5
-        score = int(round(1 + (1 - ratio) * 4))
-        return max(1, min(5, score))
+        # Mock score 0 to 10 based on inverse ratio
+        mock_td = (1 - ratio) * 10
+        score_100 = int(mock_td * 10)
+        return _format_result(
+            score_100,
+            {
+                "SS": mock_td,
+                "NII": mock_td,
+                "CS": mock_td,
+                "STS": mock_td,
+                "TS": mock_td,
+                "PD": mock_td,
+            }
+        )
 
-    # Live mode: ask Groq to rate the shift
-    from app import llm_client
-
-    prompt = (
-        "You are a text analysis tool in a video game. Compare these two texts "
-        "and rate how much the emotional tone and factual framing changed.\n\n"
-        f"Text A: \"{original[:500]}\"\n"
-        f"Text B: \"{final[:500]}\"\n\n"
-        "Scale: 1 (nearly identical tone/framing) to 5 (completely different "
-        "tone/framing). Output ONLY the number, nothing else."
+    system_prompt = (
+        "You are an objective evaluation system comparing two pieces of text to measure misinformation drift."
     )
-    result = llm_client.generate(
-        "You are a neutral text analysis tool. Output only a single digit 1-5.",
-        prompt,
-        max_tokens=5,
-    )
-    # Parse the number from the response
-    for ch in result.strip():
-        if ch.isdigit() and 1 <= int(ch) <= 5:
-            return int(ch)
-    return 3  # fallback if parsing fails
+
+    user_prompt = f"""I want to evaluate how much the evolved news deviates from the original news based on the following criteria:
+
+1. Sentiment Shift (SS): How does the sentiment compare to the original? Is the tone more positive, negative, or neutral?
+2. Introduction of New Information (NII): Does it introduce additional information not in the original, such as political conspiracy or speculation?
+3. Certainty Shift (CS): Does the language change in certainty? Does it use ambiguous terms or present information with unwarranted certainty?
+4. Stylistic Shift (STS): How does the writing style compare? Has it moved from neutral to exaggerated or dramatic?
+5. Temporal Shift (TS): Does it shift focus from the specific event to broader/unrelated timeframes?
+6. Perspective Deviation (PD): Does it introduce subjective opinions or perspectives that deviate from the objective reporting?
+
+Task: Evaluate the evolved news based on each criterion. Provide a score from 0 to 10, where 0 means completely aligned with the original, and 10 means fully deviated.
+
+Original News: [{original}]
+Evolved News: [{final}]
+
+Please provide the results STRICTLY in the following format (do not add any other text):
+SS: [score]
+NII: [score]
+CS: [score]
+STS: [score]
+TS: [score]
+PD: [score]
+"""
+
+    result = llm_client.generate(system_prompt, user_prompt, max_tokens=150, use_eval_key=True)
+    
+    # Parse scores
+    scores = {
+        "SS": 0.0,
+        "NII": 0.0,
+        "CS": 0.0,
+        "STS": 0.0,
+        "TS": 0.0,
+        "PD": 0.0,
+    }
+    
+    for line in result.strip().split('\n'):
+        line = line.strip()
+        match = re.match(r'^(SS|NII|CS|STS|TS|PD):\s*(\d+(?:\.\d+)?)', line)
+        if match:
+            key, val = match.groups()
+            scores[key] = float(val)
+
+    # Total Deviation is the average of the 6 dimensions
+    total_deviation = sum(scores.values()) / 6.0
+    
+    # Scale to 0-100 for UI
+    score_100 = int(round(total_deviation * 10))
+    # Clamp
+    score_100 = max(0, min(100, score_100))
+
+    return _format_result(score_100, scores)
 
 
-def drift_score(original: str, final: str) -> Dict[str, Any]:
-    """
-    Compute a composite drift score (0-100) with a human-readable label.
-
-    Formula:
-      score = (embedding_distance * 60) + (tone_shift_normalized * 40)
-      tone_shift_normalized = (tone_shift - 1) / 4  [maps 1-5 to 0.0-1.0]
-    """
-    emb_dist = embedding_distance(original, final)
-    tone = tone_shift_score(original, final)
-    tone_norm = (tone - 1) / 4.0  # 1→0.0, 5→1.0
-
-    raw_score = (emb_dist * 60) + (tone_norm * 40)
-    score = max(0, min(100, round(raw_score)))
-
-    if score < 20:
-        label = "Barely changed"
-    elif score < 40:
-        label = "Slightly spun"
-    elif score < 60:
-        label = "Noticeably spun"
-    elif score < 80:
-        label = "Heavily distorted"
+def _format_result(score_100: int, raw_scores: Dict[str, float]) -> Dict[str, Any]:
+    if score_100 < 20:
+        label = "Factual error"
+    elif score_100 < 40:
+        label = "Spin / Exaggeration"
+    elif score_100 < 60:
+        label = "Lie"
     else:
-        label = "Completely warped"
+        label = "Propaganda"
 
     return {
-        "score": score,
+        "score": score_100,
         "label": label,
-        "embedding_distance": round(emb_dist, 4),
-        "tone_shift": tone,
+        "raw_scores": raw_scores
     }
 
+def drift_score(original: str, final: str) -> Dict[str, Any]:
+    """Compatibility wrapper for graph.py"""
+    return fuse_eval_score(original, final)
 
-def per_persona_drift(original_text: str, hops: List[Dict[str, Any]]) -> Dict[str, Any]:
+
+def per_persona_drift(original_text: str, hops: list) -> Dict[str, Any]:
     """
-    Compute per-persona drift contribution from reposts.
-
-    For each repost, measures the embedding distance between the text
-    *before* that repost and *after* it. Returns the persona who caused
-    the biggest single-hop drift jump (the "MVP distorter").
-
-    Hop dict shape (from graph.py):
-      {"hop": int, "persona_id": str, "persona_name": str, "action": str, "text": str}
+    Fast heuristic to find the MVP distorter without burning LLM tokens.
+    Uses SequenceMatcher to calculate string divergence.
     """
-    persona_max_drift: Dict[str, float] = {}
-    # Track the running text through reposts
-    running_text = original_text
-
-    for h in hops:
-        if h["action"] == "repost" and h.get("text"):
-            before = running_text
-            after = h["text"]
-            dist = embedding_distance(before, after)
-
-            pid = h["persona_id"]
-            if pid not in persona_max_drift or dist > persona_max_drift[pid]:
-                persona_max_drift[pid] = round(dist, 4)
-
-            # Reposts update the running text (drift compounds)
-            running_text = after
-
-    if not persona_max_drift:
-        return {"mvp_distorter": None, "persona_drift": {}}
-
-    mvp = max(persona_max_drift, key=persona_max_drift.get)
+    from difflib import SequenceMatcher
+    
+    persona_drift = {}
+    
+    for hop in hops:
+        if not hop.get("text"):
+            continue
+            
+        ratio = SequenceMatcher(None, original_text.lower(), hop["text"].lower()).ratio()
+        score = int((1.0 - ratio) * 100)
+        
+        pid = hop["persona_id"]
+        if pid not in persona_drift or score > persona_drift[pid]:
+            persona_drift[pid] = score
+            
+    mvp = max(persona_drift.items(), key=lambda x: x[1])[0] if persona_drift else None
+    
     return {
+        "persona_drift": persona_drift,
         "mvp_distorter": mvp,
-        "persona_drift": persona_max_drift,
     }
